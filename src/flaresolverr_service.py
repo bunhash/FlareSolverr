@@ -372,7 +372,21 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
         logging.debug("Waiting for redirect")
         # noinspection PyBroadException
         try:
-            WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
+            wait_type = {
+                "id" : By.ID,
+                "xpath" : By.XPATH,
+                "link" : By.PARTIAL_LINK_TEXT,
+                "exact-link" : By.LINK_TEXT,
+                "name" : By.NAME,
+                "tag" : By.TAG_NAME,
+                "class" : By.CLASS_NAME,
+                "css" : By.CSS_SELECTOR,
+                "selector" : By.CSS_SELECTOR
+            }.get(req.waitType, None)
+            if wait_type and req.waitFor:
+                WebDriverWait(driver, SHORT_TIMEOUT).until(presence_of_element_located((wait_type, req.waitFor)))
+            else:
+                WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
         except Exception:
             logging.debug("Timeout waiting for redirect")
 
