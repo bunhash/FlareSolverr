@@ -43,6 +43,7 @@ class V1RequestBase(object):
     returnOnlyCookies: bool = None
     download: bool = None   # deprecated v2.0.0, not used
     returnRawHtml: bool = None  # deprecated v2.0.0, not used
+    noKill: bool = None
     waitType: str = None
     waitFor: str = None
 

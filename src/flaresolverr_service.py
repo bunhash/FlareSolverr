@@ -48,6 +48,11 @@ CHALLENGE_SELECTORS = [
     # Fairlane / pararius.com
     'div.vc div.text-box h2'
 ]
+# List of text in the HTML to instantly give up on solving a challenge
+CHALLENGE_KILLERS = [
+    "Antispam: Choose a similar picture. You have one try.",
+    "Our system has detected abnormal activity from your IP address",
+]
 SHORT_TIMEOUT = 1
 SESSIONS_STORAGE = SessionsStorage()
 
@@ -287,7 +292,6 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     res.status = STATUS_OK
     res.message = ""
 
-
     # navigate to the page
     logging.debug(f'Navigating to... {req.url}')
     if method == 'POST':
@@ -307,21 +311,28 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
         else:
             driver.get(req.url)
 
-    # wait for the page
+    # get element to wait for
+    wait_type = {
+        "id" : By.ID,
+        "xpath" : By.XPATH,
+        "link" : By.PARTIAL_LINK_TEXT,
+        "exact-link" : By.LINK_TEXT,
+        "name" : By.NAME,
+        "tag" : By.TAG_NAME,
+        "class" : By.CLASS_NAME,
+        "css" : By.CSS_SELECTOR,
+        "selector" : By.CSS_SELECTOR
+    }.get(req.waitType, None)
+
+    # wait for the title
+    WebDriverWait(driver, SHORT_TIMEOUT).until(presence_of_element_located((By.TAG_NAME, "title")))
+    page_title = driver.title
     if utils.get_config_log_html():
         logging.debug(f"Response HTML:\n{driver.page_source}")
-    html_element = driver.find_element(By.TAG_NAME, "html")
-    page_title = driver.title
 
     # find access denied titles
     for title in ACCESS_DENIED_TITLES:
         if title == page_title:
-            raise Exception('Cloudflare has blocked this request. '
-                            'Probably your IP is banned for this site, check in your web browser.')
-    # find access denied selectors
-    for selector in ACCESS_DENIED_SELECTORS:
-        found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-        if len(found_elements) > 0:
             raise Exception('Cloudflare has blocked this request. '
                             'Probably your IP is banned for this site, check in your web browser.')
 
@@ -332,17 +343,52 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
             challenge_found = True
             logging.info("Challenge detected. Title found: " + page_title)
             break
+
+    # if no challenge titles:
+    #   1) check for expected page; or
+    #   2) wait for page to load, then check css selectors
+    html_element = driver.find_element(By.TAG_NAME, "html")
     if not challenge_found:
-        # find challenge by selectors
-        for selector in CHALLENGE_SELECTORS:
-            found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-            if len(found_elements) > 0:
-                challenge_found = True
-                logging.info("Challenge detected. Selector found: " + selector)
-                break
+
+        # 1) check for expected page
+        page_found = False
+        try:
+            if wait_type and req.waitFor:
+                logging.info(f"Waiting for {req.waitType}={req.waitFor}")
+                WebDriverWait(driver, SHORT_TIMEOUT).until(presence_of_element_located((wait_type, req.waitFor)))
+                page_found = True
+        except Exception:
+            logging.debug("Page not found. Checking other challenge indicators")
+
+        # 2) wait for page to load, then check css selectors
+        if not page_found:
+            try:
+                logging.info("Waiting for staleness of <html></html>")
+                WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
+            except Exception:
+                logging.debug("Timeout waiting for page to load")
+
+            # find access denied selectors
+            for selector in ACCESS_DENIED_SELECTORS:
+                found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                if len(found_elements) > 0:
+                    raise Exception('Cloudflare has blocked this request. '
+                                    'Probably your IP is banned for this site, check in your web browser.')
+
+            # find challenge by selectors
+            for selector in CHALLENGE_SELECTORS:
+                found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                if len(found_elements) > 0:
+                    challenge_found = True
+                    logging.info("Challenge detected. Selector found: " + selector)
+                    break
 
     attempt = 0
     if challenge_found:
+        if not req.noKill:
+            for killer in CHALLENGE_KILLERS:
+                if killer in driver.page_source:
+                    raise Exception("Challenge killed")
         while True:
             try:
                 attempt = attempt + 1
@@ -368,27 +414,15 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
                 # update the html (cloudflare reloads the page every 5 s)
                 html_element = driver.find_element(By.TAG_NAME, "html")
 
-        # waits until cloudflare redirection ends
-        logging.debug("Waiting for redirect")
-        # noinspection PyBroadException
         try:
-            wait_type = {
-                "id" : By.ID,
-                "xpath" : By.XPATH,
-                "link" : By.PARTIAL_LINK_TEXT,
-                "exact-link" : By.LINK_TEXT,
-                "name" : By.NAME,
-                "tag" : By.TAG_NAME,
-                "class" : By.CLASS_NAME,
-                "css" : By.CSS_SELECTOR,
-                "selector" : By.CSS_SELECTOR
-            }.get(req.waitType, None)
             if wait_type and req.waitFor:
+                logging.info(f"Waiting for {req.waitType}={req.waitFor}")
                 WebDriverWait(driver, SHORT_TIMEOUT).until(presence_of_element_located((wait_type, req.waitFor)))
             else:
+                logging.info("Waiting for staleness of <html></html>")
                 WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
         except Exception:
-            logging.debug("Timeout waiting for redirect")
+            logging.debug("Timeout waiting for page to load")
 
         logging.info("Challenge solved!")
         res.message = "Challenge solved!"

@@ -128,6 +128,7 @@ def get_webdriver(proxy: dict = None) -> WebDriver:
 
     # undetected_chromedriver
     options = uc.ChromeOptions()
+    options.page_load_strategy = 'eager'
     options.add_argument('--no-sandbox')
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--disable-search-engine-choice-screen')
