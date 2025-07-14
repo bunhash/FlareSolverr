@@ -324,8 +324,8 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
         "selector" : By.CSS_SELECTOR
     }.get(req.waitType, None)
 
-    # wait for the title
-    WebDriverWait(driver, SHORT_TIMEOUT).until(presence_of_element_located((By.TAG_NAME, "title")))
+    # wait for the html
+    WebDriverWait(driver, SHORT_TIMEOUT).until(presence_of_element_located((By.TAG_NAME, "html")))
     page_title = driver.title
     if utils.get_config_log_html():
         logging.debug(f"Response HTML:\n{driver.page_source}")
@@ -439,6 +439,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     if not req.returnOnlyCookies:
         challenge_res.headers = {}  # todo: fix, selenium not provides this info
         challenge_res.response = driver.page_source
+        #challenge_res.response = driver.execute_script("return document.body.innerHTML;")
 
     res.result = challenge_res
     return res
